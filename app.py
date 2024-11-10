@@ -14,17 +14,22 @@ class User:
     def __init__(self, user_id):
         self.user_id = user_id
         self._db = MongoClient(f"mongodb+srv://{quote_plus(os.getenv('DB_USERNAME'))}:{quote_plus(os.getenv('DB_PASSWORD'))}@cluster0.qovpu.mongodb.net/")['library_management']
+        print(f"Initialized User with user_id: {self.user_id}")
 
     def get_user_details(self):
+        print(f"Fetching details for user_id: {self.user_id}")
         user = self._db.users.find_one({"user_id": self.user_id})
         if user:
+            print(f"User found: {user}")
             return {
                 "user_id": user.get("user_id"),
                 "name": user.get("name"),
                 "email": user.get("email"),
                 "status": user.get("status")
             }
-        return None
+        else:
+            print("User not found")
+            return None
 
     def get_status(self):
         user = self._db.users.find_one({"user_id": self.user_id})
@@ -43,16 +48,25 @@ class Book:
     def __init__(self, title):
         self.title = title
         self._db = MongoClient(f"mongodb+srv://{quote_plus(os.getenv('DB_USERNAME'))}:{quote_plus(os.getenv('DB_PASSWORD'))}@cluster0.qovpu.mongodb.net/")['library_management']
+        print(f"Initialized Book with title: {self.title}")
 
     def check_availability(self):
+        print(f"Checking availability for book_title: {self.title}")
         book = self._db.books.find_one({"book_title": self.title})
-        return book.get("available_copies", 0) > 0 if book else False
+        if book:
+            print(f"Book found: {book}")
+            return book["available_copies"] > 0
+        else:
+            print("Book not found")
+            return False
 
     def update_inventory(self, change):
+        print(f"Updating inventory for book_title: {self.title} with change: {change}")
         result = self._db.books.update_one(
             {'book_title': self.title},
             {'$inc': {'available_copies': change}}
         )
+        print(f"Update result: {result.modified_count}")
         return result.modified_count > 0
 
 class BorrowTransaction:
@@ -73,6 +87,7 @@ class BorrowTransaction:
 class LibrarySystem:
     def __init__(self):
         self._db = MongoClient(f"mongodb+srv://{quote_plus(os.getenv('DB_USERNAME'))}:{quote_plus(os.getenv('DB_PASSWORD'))}@cluster0.qovpu.mongodb.net/")['library_management']
+        print("Initialized LibrarySystem")
 
     def validate_user(self, user_id):
         user = User(user_id)
@@ -86,9 +101,11 @@ class LibrarySystem:
         return user_details, "OK"
 
     def borrow_books(self, user_id, book_title):
+        print(f"Borrowing book: {book_title} for user: {user_id}")
         # Validate user
         user_details, message = self.validate_user(user_id)
         if not user_details:
+            print("Invalid user or user has overdue books")
             return message, False
 
         # Check book availability
@@ -103,18 +120,22 @@ class LibrarySystem:
         
         transaction = BorrowTransaction()
         if not transaction.create_transaction(user_id, book_title, borrow_date, due_date):
+            print("Failed to create transaction")
             return "Failed to create transaction", False
         
         # Update inventory
         if not book.update_inventory(-1):
+            print("Failed to update inventory")
             return "Failed to update inventory", False
         
         # Schedule notification
         self.schedule_due_date_notification(user_details["name"], user_details["email"], book_title, due_date)
         
+        print(f"Book borrowed successfully! Due date: {due_date.strftime('%Y-%m-%d')}")
         return f"Book borrowed successfully! Due date: {due_date.strftime('%Y-%m-%d')}", True
 
     def notify_book_unavailable(self, book_title):
+        print(f"Book '{book_title}' is currently unavailable.")
         st.warning(f"Book '{book_title}' is currently unavailable.")
 
     def notify_overdue_books(self):
@@ -137,9 +158,12 @@ class LibrarySystem:
                     'due_date': transaction['due_date']
                 })
         
+        print(f"Overdue transactions: {overdue_transactions}")
         return overdue_transactions
 
     def schedule_due_date_notification(self, user_name, user_email, book_title, due_date):
+        # Logic to schedule notification (e.g., using a task queue)
+        print(f"Notification scheduled for {user_name} ({user_email}) for book '{book_title}' due on {due_date.strftime('%Y-%m-%d')}")
         st.info(f"Notification scheduled for {user_name} ({user_email}): '{book_title}' is due on {due_date.strftime('%Y-%m-%d')}")
 
 # Streamlit UI
@@ -147,6 +171,10 @@ def main():
     st.title("Library Management System")
     
     library = LibrarySystem()
+
+    # Initialize session state for user_id if it doesn't exist
+    if 'user_id' not in st.session_state:
+        st.session_state.user_id = ''
 
     # Search bar for books
     st.subheader("Search for a Book")
@@ -179,15 +207,26 @@ def main():
                         st.write(f"**Available Copies:** {book['available_copies']}")
                         st.write(f"**Details:** {book['book_details']}")
 
-                    # Borrow section
-                    if st.button("Borrow Book"):
-                        user_id = st.text_input("Enter your user ID:")
+                    # Borrow section with improved flow
+                    st.subheader("Borrow this Book")
+                    
+                    # User ID input
+                    user_id = st.text_input("Enter your user ID:", key="user_id_input", value=st.session_state.user_id)
+                    
+                    # Store user_id in session state
+                    if user_id:
+                        st.session_state.user_id = user_id
+
+                    # Separate borrow button
+                    if st.button("Confirm Borrow", key="borrow_button"):
                         if user_id:
                             message, success = library.borrow_books(user_id, selected_book_title)
                             if success:
                                 st.success(message)
                             else:
                                 st.error(message)
+                        else:
+                            st.error("Please enter a user ID first.")
         else:
             st.warning("No books found matching your search.")
 

@@ -47,7 +47,7 @@ class User:
 class Book:
     def __init__(self, title):
         self.title = title
-        self._db = MongoClient(f"mongodb+srv://{quote_plus(os.getenv('DB_USERNAME'))}:{quote_plus(os.getenv('DB_PASSWORD'))}@cluster0.qovpu.mongodb.net/")['library_management']
+        self._db = MongoClient(f"mongodb+srv://aadi22:aadishetty@2004@cluster0.qovpu.mongodb.net/")['library_management']
         print(f"Initialized Book with title: {self.title}")
 
     def check_availability(self):
@@ -71,7 +71,7 @@ class Book:
 
 class BorrowTransaction:
     def __init__(self):
-        self._db = MongoClient(f"mongodb+srv://{quote_plus(os.getenv('DB_USERNAME'))}:{quote_plus(os.getenv('DB_PASSWORD'))}@cluster0.qovpu.mongodb.net/")['library_management']
+        self._db = MongoClient(f"mongodb+srv://aadi22:aadishetty@2004@cluster0.qovpu.mongodb.net/")['library_management']
 
     def create_transaction(self, user_id, book_title, borrow_date, due_date):
         transaction = {
@@ -86,7 +86,7 @@ class BorrowTransaction:
 
 class LibrarySystem:
     def __init__(self):
-        self._db = MongoClient(f"mongodb+srv://{quote_plus(os.getenv('DB_USERNAME'))}:{quote_plus(os.getenv('DB_PASSWORD'))}@cluster0.qovpu.mongodb.net/")['library_management']
+        self._db = MongoClient(f"mongodb+srv://aadi22:aadishetty@2004@cluster0.qovpu.mongodb.net/")['library_management']
         print("Initialized LibrarySystem")
 
     def validate_user(self, user_id):

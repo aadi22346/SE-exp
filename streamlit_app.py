@@ -159,7 +159,7 @@ partial_title = st.text_input("Start typing the book title...")
 if partial_title:
     books = db.books.find({"book_title": {"$regex": partial_title, "$options": "i"}})
     search_results = [book["book_title"] for book in books]
-    st.write(f"Search results: {search_results}")  # Debugging statement
+    # st.write(f"Search results: {search_results}")  # Debugging statement
     selected_book_title = st.selectbox("Select a book from the list:", search_results)
 else:
     selected_book_title = None

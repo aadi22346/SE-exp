@@ -13,7 +13,7 @@ load_dotenv()
 class User:
     def __init__(self, user_id):
         self.user_id = user_id
-        self._db = MongoClient(f"mongodb+srv://{quote_plus(os.getenv('DB_USERNAME'))}:{quote_plus(os.getenv('DB_PASSWORD'))}@cluster0.qovpu.mongodb.net/")['library_management']
+        self._db = MongoClient(f"mongodb+srv://aadi22:aadishetty@2004@cluster0.qovpu.mongodb.net/")['library_management']
         print(f"Initialized User with user_id: {self.user_id}")
 
     def get_user_details(self):

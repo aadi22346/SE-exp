@@ -1,19 +1,25 @@
 import streamlit as st
-import requests
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from urllib.parse import quote_plus
-import os
-from dotenv import load_dotenv
 import ast
 
-# Load environment variables
-load_dotenv()
+# Ensure secrets are set
+db_username = st.secrets["DB_USERNAME"]
+db_password = st.secrets["DB_PASSWORD"]
+
+# URL-encode the credentials
+username = quote_plus(db_username)
+password = quote_plus(db_password)
+
+# Database connection
+client = MongoClient(f"mongodb+srv://{username}:{password}@cluster0.qovpu.mongodb.net/")
+db = client['library_management']
 
 class User:
     def __init__(self, user_id):
         self.user_id = user_id
-        self._db = MongoClient(f"mongodb+srv://aadi22:aadishetty@2004@cluster0.qovpu.mongodb.net/")['library_management']
+        self._db = db
         print(f"Initialized User with user_id: {self.user_id}")
 
     def get_user_details(self):
@@ -47,7 +53,7 @@ class User:
 class Book:
     def __init__(self, title):
         self.title = title
-        self._db = MongoClient(f"mongodb+srv://aadi22:aadishetty@2004@cluster0.qovpu.mongodb.net/")['library_management']
+        self._db = db
         print(f"Initialized Book with title: {self.title}")
 
     def check_availability(self):
@@ -62,18 +68,16 @@ class Book:
 
     def update_inventory(self, change):
         print(f"Updating inventory for book_title: {self.title} with change: {change}")
-        result = self._db.books.update_one(
-            {'book_title': self.title},
-            {'$inc': {'available_copies': change}}
-        )
+        result = self._db.books.update_one({"book_title": self.title}, {"$inc": {"available_copies": change}})
         print(f"Update result: {result.modified_count}")
         return result.modified_count > 0
 
 class BorrowTransaction:
     def __init__(self):
-        self._db = MongoClient(f"mongodb+srv://aadi22:aadishetty@2004@cluster0.qovpu.mongodb.net/")['library_management']
+        self._db = db
 
     def create_transaction(self, user_id, book_title, borrow_date, due_date):
+        print(f"Creating transaction for user_id: {user_id}, book_title: {book_title}")
         transaction = {
             'user_id': user_id,
             'book_title': book_title,
@@ -82,33 +86,21 @@ class BorrowTransaction:
             'returned': False
         }
         result = self._db.borrow_transactions.insert_one(transaction)
+        print(f"Transaction result: {result.inserted_id}")
         return bool(result.inserted_id)
 
 class LibrarySystem:
     def __init__(self):
-        self._db = MongoClient(f"mongodb+srv://aadi22:aadishetty@2004@cluster0.qovpu.mongodb.net/")['library_management']
+        self._db = db
         print("Initialized LibrarySystem")
-
-    def validate_user(self, user_id):
-        user = User(user_id)
-        user_details = user.get_user_details()
-        if not user_details:
-            return None, "User not found"
-        if user_details["status"] != "active":
-            return None, "User account is not active"
-        if user.has_overdue_books():
-            return None, "User has overdue books"
-        return user_details, "OK"
 
     def borrow_books(self, user_id, book_title):
         print(f"Borrowing book: {book_title} for user: {user_id}")
-        # Validate user
-        user_details, message = self.validate_user(user_id)
-        if not user_details:
+        user_details = self._db.users.find_one({"user_id": user_id})
+        if not user_details or user_details["status"] != "active":
             print("Invalid user or user has overdue books")
-            return message, False
+            return "Invalid user or user has overdue books", False
 
-        # Check book availability
         book = Book(book_title)
         if not book.check_availability():
             self.notify_book_unavailable(book_title)
@@ -146,105 +138,93 @@ class LibrarySystem:
             'due_date': {'$lt': current_date},
             'returned': False
         })
-        
         for transaction in transactions:
-            user = User(transaction['user_id']).get_user_details()
-            if user:
-                overdue_transactions.append({
-                    'book_title': transaction['book_title'],
-                    'user_id': transaction['user_id'],
-                    'user_name': user['name'],
-                    'email': user['email'],
-                    'due_date': transaction['due_date']
-                })
-        
+            overdue_transactions.append(transaction)
         print(f"Overdue transactions: {overdue_transactions}")
         return overdue_transactions
 
     def schedule_due_date_notification(self, user_name, user_email, book_title, due_date):
         # Logic to schedule notification (e.g., using a task queue)
         print(f"Notification scheduled for {user_name} ({user_email}) for book '{book_title}' due on {due_date.strftime('%Y-%m-%d')}")
-        st.info(f"Notification scheduled for {user_name} ({user_email}): '{book_title}' is due on {due_date.strftime('%Y-%m-%d')}")
+        st.info(f"Notification scheduled for {user_name} ({user_email}) for book '{book_title}' due on {due_date.strftime('%Y-%m-%d')}")
 
-# Streamlit UI
-def main():
-    st.title("Library Management System")
-    
+# Streamlit app
+st.title("Library System")
+
+# Search bar for books
+st.subheader("Search for a Book")
+partial_title = st.text_input("Start typing the book title...")
+
+# Fetch search results based on partial title
+if partial_title:
+    books = db.books.find({"book_title": {"$regex": partial_title, "$options": "i"}})
+    search_results = [book["book_title"] for book in books]
+    st.write(f"Search results: {search_results}")  # Debugging statement
+    selected_book_title = st.selectbox("Select a book from the list:", search_results)
+else:
+    selected_book_title = None
+
+# Display book details if a title is selected
+if selected_book_title:
+    st.write(f"Selected book title: {selected_book_title}")  # Debugging statement
+    book = db.books.find_one({"book_title": selected_book_title})
+    if book:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.image(book['cover_image_uri'], width=200)
+        with col2:
+            st.write(f"**Title:** {book['book_title']}")
+            st.write(f"**Author:** {book['author']}")
+
+            # Convert genres string to list
+            genres = ast.literal_eval(book['genres']) if isinstance(book['genres'], str) else book['genres']
+            if genres:
+                st.write("**Genres:**")
+                for genre in genres:
+                    st.write(f"- {genre}")
+
+            st.write(f"**Available Copies:** {book['available_copies']}")
+            st.write(f"**Details:** {book['book_details']}")
+
+            # Borrow section with improved flow
+            st.subheader("Borrow this Book")
+            
+            # User ID input
+            user_id = st.text_input("Enter your user ID:", key="user_id_input", value=st.session_state.get("user_id", ""))
+            
+            # Store user_id in session state
+            if user_id:
+                st.session_state.user_id = user_id
+
+            if st.button("Borrow Book"):
+                if user_id:
+                    library = LibrarySystem()
+                    message, success = library.borrow_books(user_id, selected_book_title)
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+    else:
+        st.error("Could not fetch book details.")
+
+# Notify book unavailability
+if st.button("Notify Unavailable Books"):
+    unavailable_books = db.books.find({'available_copies': 0})
+    book_titles = [book['book_title'] for book in unavailable_books]
+    if book_titles:
+        st.write("Unavailable Books:")
+        for title in book_titles:
+            st.write(f"- {title}")
+    else:
+        st.write("All books are available.")
+
+# Notify overdue books
+if st.button("Notify Overdue Books"):
     library = LibrarySystem()
-
-    # Initialize session state for user_id if it doesn't exist
-    if 'user_id' not in st.session_state:
-        st.session_state.user_id = ''
-
-    # Search bar for books
-    st.subheader("Search for a Book")
-    partial_title = st.text_input("Start typing the book title...")
-
-    if partial_title:
-        books = library._db.books.find({"book_title": {"$regex": partial_title, "$options": "i"}})
-        search_results = [book["book_title"] for book in books]
-        
-        if search_results:
-            selected_book_title = st.selectbox("Select a book from the list:", search_results)
-
-            if selected_book_title:
-                book = library._db.books.find_one({"book_title": selected_book_title})
-                if book:
-                    col1, col2 = st.columns([1, 2])
-                    with col1:
-                        st.image(book['cover_image_uri'], width=200)
-                    with col2:
-                        st.write(f"**Title:** {book['book_title']}")
-                        st.write(f"**Author:** {book['author']}")
-
-                        # Format and display genres
-                        genres = ast.literal_eval(book['genres']) if isinstance(book['genres'], str) else book['genres']
-                        if genres:
-                            st.write("**Genres:**")
-                            for genre in genres:
-                                st.write(f"- {genre}")
-
-                        st.write(f"**Available Copies:** {book['available_copies']}")
-                        st.write(f"**Details:** {book['book_details']}")
-
-                    # Borrow section with improved flow
-                    st.subheader("Borrow this Book")
-                    
-                    # User ID input
-                    user_id = st.text_input("Enter your user ID:", key="user_id_input", value=st.session_state.user_id)
-                    
-                    # Store user_id in session state
-                    if user_id:
-                        st.session_state.user_id = user_id
-
-                    # Separate borrow button
-                    if st.button("Confirm Borrow", key="borrow_button"):
-                        if user_id:
-                            message, success = library.borrow_books(user_id, selected_book_title)
-                            if success:
-                                st.success(message)
-                            else:
-                                st.error(message)
-                        else:
-                            st.error("Please enter a user ID first.")
-        else:
-            st.warning("No books found matching your search.")
-
-    # Admin functions
-    st.subheader("Administrative Functions")
-    if st.button("Check Overdue Books"):
-        overdue_books = library.notify_overdue_books()
-        if overdue_books:
-            st.write("**Overdue Books:**")
-            for transaction in overdue_books:
-                st.warning(
-                    f"Book: {transaction['book_title']}\n"
-                    f"User: {transaction['user_name']} (ID: {transaction['user_id']})\n"
-                    f"Email: {transaction['email']}\n"
-                    f"Due Date: {transaction['due_date'].strftime('%Y-%m-%d')}"
-                )
-        else:
-            st.success("No overdue books found.")
-
-if __name__ == "__main__":
-    main()
+    overdue_books = library.notify_overdue_books()
+    if overdue_books:
+        st.write("Overdue Books:")
+        for overdue in overdue_books:
+            st.write(f"User: {overdue['user_name']}, Book Title: {overdue['book_title']}")
+    else:
+        st.write("No overdue books.")
